@@ -1,0 +1,42 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to UniFi",
+        "description": "Enter your UniFi OS credentials.",
+        "data": {
+          "host": "Host (e.g. https://192.168.1.1)",
+          "username": "Username",
+          "password": "Password",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      },
+      "select_devices": {
+        "title": "Select Devices to Track",
+        "description": "Choose which clients you want to track.",
+        "data": {
+          "tracked_macs": "Devices"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to UniFi. Check the host address.",
+      "invalid_auth": "Invalid username or password.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This UniFi instance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update Tracked Devices",
+        "description": "Select which clients to track.",
+        "data": {
+          "tracked_macs": "Devices"
+        }
+      }
+    }
+  }
+}

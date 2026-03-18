@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
+
+from .const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_TRACKED_MACS,
+    CONF_USERNAME,
+    CONF_VERIFY_SSL,
+    DOMAIN,
+)
+from .coordinator import UnifiApiClient
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _client_label(client: dict) -> str:
+    hostname = client.get("hostname") or client.get("name") or ""
+    mac = client.get("mac", "").lower()
+    if hostname:
+        return f"{hostname} ({mac})"
+    return mac
+
+
+class UnifiDeviceTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
+    VERSION = 1
+
+    def __init__(self) -> None:
+        self._credentials: dict[str, Any] = {}
+        self._clients: list[dict] = []
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            api = UnifiApiClient(
+                host=user_input[CONF_HOST],
+                username=user_input[CONF_USERNAME],
+                password=user_input[CONF_PASSWORD],
+                verify_ssl=user_input.get(CONF_VERIFY_SSL, False),
+            )
+            try:
+                await api.async_login()
+                self._clients = await api.async_get_clients()
+            except Exception as err:
+                err_str = str(err).lower()
+                if "invalid credentials" in err_str or "401" in err_str:
+                    errors["base"] = "invalid_auth"
+                elif "cannot connect" in err_str or "connect" in err_str:
+                    errors["base"] = "cannot_connect"
+                else:
+                    _LOGGER.exception("Unexpected error during setup")
+                    errors["base"] = "unknown"
+            finally:
+                await api.async_close()
+
+            if not errors:
+                self._credentials = user_input
+                return await self.async_step_select_devices()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST): str,
+                    vol.Required(CONF_USERNAME): str,
+                    vol.Required(CONF_PASSWORD): str,
+                    vol.Optional(CONF_VERIFY_SSL, default=False): bool,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_select_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            tracked = [m.lower() for m in user_input.get(CONF_TRACKED_MACS, [])]
+            return self.async_create_entry(
+                title=self._credentials[CONF_HOST],
+                data=self._credentials,
+                options={CONF_TRACKED_MACS: tracked},
+            )
+
+        options = [
+            SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
+            for c in self._clients
+            if "mac" in c
+        ]
+
+        return self.async_show_form(
+            step_id="select_devices",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_TRACKED_MACS): SelectSelector(
+                        SelectSelectorConfig(
+                            options=options,
+                            multiple=True,
+                            mode=SelectSelectorMode.LIST,
+                        )
+                    )
+                }
+            ),
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return UnifiDeviceTrackerOptionsFlow(config_entry)
+
+
+class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        self._config_entry = config_entry
+        self._clients: list[dict] = []
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            tracked = [m.lower() for m in user_input.get(CONF_TRACKED_MACS, [])]
+            return self.async_create_entry(data={CONF_TRACKED_MACS: tracked})
+
+        api = UnifiApiClient(
+            host=self._config_entry.data[CONF_HOST],
+            username=self._config_entry.data[CONF_USERNAME],
+            password=self._config_entry.data[CONF_PASSWORD],
+            verify_ssl=self._config_entry.data.get(CONF_VERIFY_SSL, False),
+        )
+        try:
+            await api.async_login()
+            self._clients = await api.async_get_clients()
+        except Exception:
+            _LOGGER.exception("Failed to fetch clients for options flow")
+            self._clients = []
+        finally:
+            await api.async_close()
+
+        currently_tracked = self._config_entry.options.get(CONF_TRACKED_MACS, [])
+
+        options = [
+            SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
+            for c in self._clients
+            if "mac" in c
+        ]
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_TRACKED_MACS, default=currently_tracked
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=options,
+                            multiple=True,
+                            mode=SelectSelectorMode.LIST,
+                        )
+                    )
+                }
+            ),
+        )

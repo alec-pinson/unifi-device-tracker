@@ -1,0 +1,10 @@
+{
+  "domain": "unifi_device_tracker",
+  "name": "UniFi Device Tracker",
+  "version": "1.0.0",
+  "config_flow": true,
+  "requirements": [],
+  "dependencies": [],
+  "iot_class": "local_polling",
+  "codeowners": ["@alec-pinson"]
+}
