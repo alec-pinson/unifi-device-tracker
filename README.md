@@ -20,6 +20,10 @@ A lightweight Home Assistant custom integration to track specific UniFi network 
 
 ### HACS (recommended)
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=alec-pinson&repository=unifi-device-tracker&category=integration)
+
+Or manually:
+
 1. Open HACS → Integrations → three-dot menu → **Custom repositories**
 2. Add this repository URL and select category **Integration**
 3. Search for **UniFi Device Tracker** and install
