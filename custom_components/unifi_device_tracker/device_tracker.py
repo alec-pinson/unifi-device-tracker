@@ -36,6 +36,7 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
         self._attr_unique_id = f"unifi_device_tracker_{self._mac.replace(':', '')}"
         self._last_seen: datetime | None = None
         self._first_seen: datetime | None = None
+        self._last_known_client: dict | None = None
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -49,6 +50,7 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
     def _handle_coordinator_update(self) -> None:
         now = dt_util.utcnow()
         if self._client is not None:
+            self._last_known_client = self._client
             self._last_seen = now
             if self._first_seen is None:
                 self._first_seen = now
@@ -76,7 +78,7 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
 
     @property
     def name(self) -> str:
-        client = self._client
+        client = self._client or self._last_known_client
         if client:
             return client.get("name") or client.get("hostname") or self._mac
         return self._mac
@@ -87,21 +89,21 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
 
     @property
     def hostname(self) -> str | None:
-        client = self._client
+        client = self._client or self._last_known_client
         if client:
             return client.get("hostname") or client.get("name")
         return None
 
     @property
     def ip_address(self) -> str | None:
-        client = self._client
+        client = self._client or self._last_known_client
         if client:
             return client.get("ip")
         return None
 
     @property
     def extra_state_attributes(self) -> dict:
-        client = self._client
+        client = self._client or self._last_known_client
         if not client:
             return {}
         attrs = {}

@@ -12,7 +12,7 @@ from .coordinator import UnifiDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.DEVICE_TRACKER]
+PLATFORMS = [Platform.DEVICE_TRACKER, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -28,7 +28,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 entity_registry.async_remove(entity_entry.entity_id)
 
     coordinator = UnifiDataUpdateCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        await coordinator.api.async_close()
+        raise
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(async_update_options_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

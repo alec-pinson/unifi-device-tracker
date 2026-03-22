@@ -5,8 +5,9 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -71,19 +72,19 @@ class UnifiDeviceTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await api.async_login()
                 self._clients = await api.async_get_clients()
-            except Exception as err:
-                err_str = str(err).lower()
-                if "invalid credentials" in err_str or "401" in err_str:
-                    errors["base"] = "invalid_auth"
-                elif "cannot connect" in err_str or "connect" in err_str:
-                    errors["base"] = "cannot_connect"
-                else:
-                    _LOGGER.exception("Unexpected error during setup")
-                    errors["base"] = "unknown"
+            except ConfigEntryAuthFailed:
+                errors["base"] = "invalid_auth"
+            except HomeAssistantError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during setup")
+                errors["base"] = "unknown"
             finally:
                 await api.async_close()
 
             if not errors:
+                await self.async_set_unique_id(user_input[CONF_HOST])
+                self._abort_if_unique_id_configured()
                 self._credentials = user_input
                 return await self.async_step_select_devices()
 

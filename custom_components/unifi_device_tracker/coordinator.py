@@ -33,7 +33,8 @@ class UnifiApiClient:
         self._password = password
         self._verify_ssl = verify_ssl
         self._session = aiohttp.ClientSession(
-            cookie_jar=aiohttp.CookieJar(unsafe=True)
+            cookie_jar=aiohttp.CookieJar(unsafe=True),
+            timeout=aiohttp.ClientTimeout(total=10),
         )
 
     async def async_login(self) -> None:
