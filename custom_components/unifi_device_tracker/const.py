@@ -21,4 +21,5 @@ WS_RECONNECT_MIN_DELAY = 5  # seconds
 WS_RECONNECT_MAX_DELAY = 300  # seconds
 WS_EVENT_STA_SYNC = "sta:sync"
 WS_EVENT_EVENTS = "events"
+WS_CONNECT_KEYS = {"EVT_WU_Connected", "EVT_WG_Connected"}
 WS_DISCONNECT_KEYS = {"EVT_WU_Disconnected", "EVT_WG_Disconnected"}

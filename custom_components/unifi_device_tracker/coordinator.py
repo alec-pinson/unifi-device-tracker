@@ -21,6 +21,7 @@ from .const import (
     UNIFI_LOGIN_PATH,
     UNIFI_WLANS_PATH,
     UNIFI_WS_PATH,
+    WS_CONNECT_KEYS,
     WS_DISCONNECT_KEYS,
     WS_EVENT_EVENTS,
     WS_EVENT_STA_SYNC,
@@ -220,14 +221,20 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 if not mac:
                     continue
                 if mac not in current_data:
+                    _LOGGER.debug("Client connected: mac=%s", mac)
                     notify = True
                 current_data[mac] = client
 
         elif message_type == WS_EVENT_EVENTS:
             for event in data_list:
                 key = event.get("key", "")
-                if key in WS_DISCONNECT_KEYS:
-                    mac = event.get("user", "").lower() or event.get("mac", "").lower()
+                mac = event.get("user", "").lower() or event.get("mac", "").lower()
+                if key in WS_CONNECT_KEYS:
+                    _LOGGER.debug("Client connected: mac=%s key=%s", mac, key)
+                    if mac and mac not in current_data:
+                        current_data[mac] = event
+                        notify = True
+                elif key in WS_DISCONNECT_KEYS:
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
                     if mac and mac in current_data:
                         del current_data[mac]
