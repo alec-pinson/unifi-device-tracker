@@ -13,6 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_HOST,
     CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
     DEFAULT_SCAN_INTERVAL,
@@ -75,11 +76,12 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
             password=entry.data[CONF_PASSWORD],
             verify_ssl=entry.data.get(CONF_VERIFY_SSL, False),
         )
+        scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
 
     async def _async_setup(self) -> None:

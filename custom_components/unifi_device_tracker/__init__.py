@@ -5,7 +5,9 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
+from .const import CONF_TRACKED_MACS
 from .coordinator import UnifiDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -14,6 +16,17 @@ PLATFORMS = [Platform.DEVICE_TRACKER]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    tracked_macs = {m.lower() for m in entry.options.get(CONF_TRACKED_MACS, [])}
+    entity_registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        uid = entity_entry.unique_id
+        prefix = "unifi_device_tracker_"
+        if uid.startswith(prefix):
+            mac_flat = uid[len(prefix):]
+            mac = ":".join(mac_flat[i:i+2] for i in range(0, 12, 2))
+            if mac not in tracked_macs:
+                entity_registry.async_remove(entity_entry.entity_id)
+
     coordinator = UnifiDataUpdateCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

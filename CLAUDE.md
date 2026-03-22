@@ -1,12 +1,12 @@
 # UniFi Device Tracker — Dev Notes
 
 ## Overview
-Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi network clients as `device_tracker` entities. Polls the UniFi OS local API every 30 seconds.
+Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi network clients as `device_tracker` entities. Polls the UniFi OS local API on a configurable interval (default 30 seconds).
 
 ## Test Environment
 - Test HA runs on k3s, kubectl context: `pi-k8s-cluster`, namespace: `default`
 - Test pod: `test-home-assistant-*` (deployment: `test-home-assistant`)
-- Deploy command: `kubectl cp custom_components/unifi_device_tracker <pod>:/config/custom_components/unifi_device_tracker --context pi-k8s-cluster --namespace default`
+- Deploy command: `kubectl exec <pod> -- rm -rf /config/custom_components/unifi_device_tracker && kubectl cp custom_components/unifi_device_tracker <pod>:/config/custom_components/ --context pi-k8s-cluster --namespace default`
 - Restart: `kubectl rollout restart deployment/test-home-assistant --context pi-k8s-cluster --namespace default`
 
 ## Icons
@@ -21,6 +21,10 @@ Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi net
 - `stat/sta` returns only currently connected clients — missing MAC = `not_home`
 - Uses `entry.runtime_data` (modern HA 2024+ pattern, not `hass.data[DOMAIN]`)
 - `aiohttp` is bundled with HA — never add it to `requirements` in `manifest.json`
+- Entity name priority: UniFi `name` (alias) → `hostname` → MAC
+- `BaseTrackerEntity` overrides `entity_registry_enabled_default` as a property returning `False` — must override the **property** in the entity class (not just set `_attr_entity_registry_enabled_default`) to ensure entities are enabled on first registration
+- Scan interval, away delay, and home delay are stored in `entry.options` and read on coordinator/entity init — entry reload applies changes
+- Stale entities (unticked MACs) are removed from the entity registry in `async_setup_entry` before platforms are set up
 
 ## API Paths
 - Login: `POST /api/auth/login`

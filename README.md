@@ -5,9 +5,12 @@ A lightweight Home Assistant custom integration to track specific UniFi network 
 ## Features
 
 - Tracks selected UniFi clients as `home`/`not_home` device tracker entities
-- Polls every 30 seconds via the UniFi OS local API
+- Polls the UniFi OS local API on a configurable interval (default 30 seconds)
+- Uses the UniFi device alias as the entity name when set
+- Configurable away and home delays to avoid false presence changes
 - Configurable via the Home Assistant UI (no YAML required)
 - Add/remove tracked devices via the integration options without restarting HA
+- Removing a device from the tracked list deletes its entity from HA
 - Exposes extra attributes: IP address, hostname, last seen, SSID, signal strength
 
 ## Requirements
@@ -46,13 +49,23 @@ Or manually:
 
 ## Options
 
-After setup, click **Configure** on the integration to update the list of tracked devices. The options flow re-fetches the live client list so any newly joined devices will appear.
+Click **Configure** on the integration to adjust settings. The options flow re-fetches the live client list so any newly joined devices will appear.
+
+| Option | Default | Description |
+|---|---|---|
+| Poll interval | 30s | How often to query the UniFi controller |
+| Away delay | 0s | Seconds to wait before marking a device as Away after it leaves the network |
+| Home delay | 0s | Seconds to wait before marking a device as Home after it joins the network |
+| Devices | — | Which clients to track (sorted alphabetically, shows alias if set) |
+
+Unticking a device and saving will remove its entity from Home Assistant.
 
 ## How It Works
 
 - Authenticates against the UniFi OS local API (`/api/auth/login`)
-- Polls `/proxy/network/api/s/default/stat/sta` every 30 seconds — this endpoint returns only **currently connected** clients
-- A missing MAC in the response means the device is `not_home`
+- Polls `/proxy/network/api/s/default/stat/sta` on the configured interval — this endpoint returns only **currently connected** clients
+- A missing MAC in the response means the device is `not_home` (subject to away delay)
+- Entity names use the UniFi device alias (`name` field) if set, falling back to hostname then MAC
 - On session expiry (HTTP 401), the integration automatically re-authenticates and retries
 
 ## Entities

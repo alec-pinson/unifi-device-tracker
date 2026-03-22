@@ -32,9 +32,17 @@
     "step": {
       "init": {
         "title": "Update Tracked Devices",
-        "description": "Select which clients to track.",
+        "description": "Select which clients to track and configure polling and presence delays.",
         "data": {
+          "scan_interval": "Poll interval",
+          "away_delay": "Away delay",
+          "home_delay": "Home delay",
           "tracked_macs": "Devices"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the UniFi controller for connected clients.",
+          "away_delay": "Seconds to wait before marking a device as Away after it leaves the network (0 = immediate).",
+          "home_delay": "Seconds to wait before marking a device as Home after it joins the network (0 = immediate)."
         }
       }
     }

@@ -8,6 +8,9 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -15,11 +18,17 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_AWAY_DELAY,
+    CONF_HOME_DELAY,
     CONF_HOST,
     CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
     CONF_TRACKED_MACS,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
+    DEFAULT_AWAY_DELAY,
+    DEFAULT_HOME_DELAY,
+    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
 from .coordinator import UnifiApiClient
@@ -28,8 +37,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _client_label(client: dict) -> str:
-    hostname = client.get("hostname") or client.get("name") or ""
+    alias = (client.get("name") or "").strip()
+    hostname = (client.get("hostname") or "").strip()
     mac = client.get("mac", "").lower()
+    if alias and hostname:
+        return f"{alias} ({hostname}, {mac})"
+    if alias:
+        return f"{alias} ({mac})"
     if hostname:
         return f"{hostname} ({mac})"
     return mac
@@ -97,11 +111,14 @@ class UnifiDeviceTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 options={CONF_TRACKED_MACS: tracked},
             )
 
-        options = [
-            SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
-            for c in self._clients
-            if "mac" in c
-        ]
+        options = sorted(
+            [
+                SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
+                for c in self._clients
+                if "mac" in c
+            ],
+            key=lambda o: o["label"].lower(),
+        )
 
         return self.async_show_form(
             step_id="select_devices",
@@ -134,7 +151,12 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         if user_input is not None:
             tracked = [m.lower() for m in user_input.get(CONF_TRACKED_MACS, [])]
-            return self.async_create_entry(data={CONF_TRACKED_MACS: tracked})
+            return self.async_create_entry(data={
+                CONF_TRACKED_MACS: tracked,
+                CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                CONF_AWAY_DELAY: user_input.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY),
+                CONF_HOME_DELAY: user_input.get(CONF_HOME_DELAY, DEFAULT_HOME_DELAY),
+            })
 
         api = UnifiApiClient(
             host=self._config_entry.data[CONF_HOST],
@@ -152,17 +174,32 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
             await api.async_close()
 
         currently_tracked = self._config_entry.options.get(CONF_TRACKED_MACS, [])
+        current_scan_interval = self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        current_away_delay = self._config_entry.options.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY)
+        current_home_delay = self._config_entry.options.get(CONF_HOME_DELAY, DEFAULT_HOME_DELAY)
 
-        options = [
-            SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
-            for c in self._clients
-            if "mac" in c
-        ]
+        options = sorted(
+            [
+                SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
+                for c in self._clients
+                if "mac" in c
+            ],
+            key=lambda o: o["label"].lower(),
+        )
+
+        _delay_selector = NumberSelector(
+            NumberSelectorConfig(min=0, max=3600, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX)
+        )
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
+                    vol.Required(CONF_SCAN_INTERVAL, default=current_scan_interval): NumberSelector(
+                        NumberSelectorConfig(min=5, max=3600, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX)
+                    ),
+                    vol.Required(CONF_AWAY_DELAY, default=current_away_delay): _delay_selector,
+                    vol.Required(CONF_HOME_DELAY, default=current_home_delay): _delay_selector,
                     vol.Required(
                         CONF_TRACKED_MACS, default=currently_tracked
                     ): SelectSelector(
@@ -171,7 +208,7 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
                             multiple=True,
                             mode=SelectSelectorMode.LIST,
                         )
-                    )
+                    ),
                 }
             ),
         )
