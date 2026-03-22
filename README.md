@@ -8,6 +8,7 @@ A lightweight Home Assistant custom integration to track specific UniFi network 
 - Polls the UniFi OS local API on a configurable interval (default 30 seconds)
 - Uses the UniFi device alias as the entity name when set
 - Configurable away and home delays to avoid false presence changes
+- Sensor entities showing connected client counts per WiFi SSID (all SSIDs auto-discovered at startup)
 - Configurable via the Home Assistant UI (no YAML required)
 - Add/remove tracked devices via the integration options without restarting HA
 - Removing a device from the tracked list deletes its entity from HA
@@ -67,6 +68,11 @@ Unticking a device and saving will remove its entity from Home Assistant.
 - A missing MAC in the response means the device is `not_home` (subject to away delay)
 - Entity names use the UniFi device alias (`name` field) if set, falling back to hostname then MAC
 - On session expiry (HTTP 401), the integration automatically re-authenticates and retries
+- At startup, queries `/proxy/network/api/s/default/rest/wlanconf` to discover all configured SSIDs and create client-count sensors for each (including SSIDs with no connected clients)
+
+## SSID Sensors
+
+A `sensor` entity is automatically created for each configured WiFi SSID showing the number of currently connected clients. These are discovered from the UniFi WLAN config at startup, so sensors exist even for SSIDs with no connected clients (showing `0`). Any new SSIDs that appear in client data after startup are also picked up automatically.
 
 ## Entities
 

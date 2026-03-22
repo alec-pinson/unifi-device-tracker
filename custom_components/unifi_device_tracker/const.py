@@ -15,3 +15,4 @@ DEFAULT_HOME_DELAY = 0  # seconds
 
 UNIFI_LOGIN_PATH = "/api/auth/login"
 UNIFI_CLIENTS_PATH = "/proxy/network/api/s/default/stat/sta"
+UNIFI_WLANS_PATH = "/proxy/network/api/s/default/rest/wlanconf"

@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     UNIFI_CLIENTS_PATH,
     UNIFI_LOGIN_PATH,
+    UNIFI_WLANS_PATH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +64,18 @@ class UnifiApiClient:
                 return body.get("data", [])
         except aiohttp.ClientError as err:
             raise HomeAssistantError(f"Error fetching clients: {err}") from err
+
+    async def async_get_wlans(self) -> list[dict]:
+        url = f"{self._host}{UNIFI_WLANS_PATH}"
+        try:
+            async with self._session.get(url, ssl=self._verify_ssl) as resp:
+                if resp.status == 401:
+                    raise PermissionError("Unauthorized — session expired")
+                resp.raise_for_status()
+                body = await resp.json()
+                return body.get("data", [])
+        except aiohttp.ClientError as err:
+            raise HomeAssistantError(f"Error fetching WLANs: {err}") from err
 
     async def async_close(self) -> None:
         await self._session.close()

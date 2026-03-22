@@ -29,6 +29,7 @@ Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi net
 ## API Paths
 - Login: `POST /api/auth/login`
 - Clients: `GET /proxy/network/api/s/default/stat/sta`
+- WLANs: `GET /proxy/network/api/s/default/rest/wlanconf`
 
 ## Structure
 ```
@@ -39,6 +40,7 @@ custom_components/unifi_device_tracker/
 ├── coordinator.py       # UnifiApiClient + UnifiDataUpdateCoordinator
 ├── config_flow.py       # 2-step config flow + options flow
 ├── device_tracker.py    # CoordinatorEntity + ScannerEntity
+├── sensor.py            # SSID client count sensors
 ├── strings.json
 ├── translations/en.json
 └── brand/
