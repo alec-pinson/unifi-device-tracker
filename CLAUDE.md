@@ -1,7 +1,7 @@
 # UniFi Device Tracker — Dev Notes
 
 ## Overview
-Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi network clients as `device_tracker` entities. Polls the UniFi OS local API on a configurable interval (default 30 seconds).
+Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi network clients as `device_tracker` entities. Uses a WebSocket connection to the UniFi OS controller for real-time push-based presence detection, with a single REST call on startup for initial state.
 
 ## Test Environment
 - Test HA runs on k3s, kubectl context: `pi-k8s-cluster`, namespace: `default`
@@ -23,13 +23,26 @@ Home Assistant custom integration (`unifi_device_tracker`) that tracks UniFi net
 - `aiohttp` is bundled with HA — never add it to `requirements` in `manifest.json`
 - Entity name priority: UniFi `name` (alias) → `hostname` → MAC
 - `BaseTrackerEntity` overrides `entity_registry_enabled_default` as a property returning `False` — must override the **property** in the entity class (not just set `_attr_entity_registry_enabled_default`) to ensure entities are enabled on first registration
-- Scan interval, away delay, and home delay are stored in `entry.options` and read on coordinator/entity init — entry reload applies changes
+- Away delay and home delay are stored in `entry.options` and read on coordinator/entity init — entry reload applies changes
 - Stale entities (unticked MACs) are removed from the entity registry in `async_setup_entry` before platforms are set up
+
+## WebSocket Details
+- Endpoint: `wss://<host>/proxy/network/wss/s/default/events`
+- Auth: cookie-based, shares session with REST client (`CookieJar(unsafe=True)`)
+- Heartbeat: aiohttp `heartbeat=25` (auto ping/pong, catches silent drops)
+- Reconnection: exponential backoff 5s → 300s, reset on successful connect
+- `sta:sync` messages: presence in data = connected (no `state` field — it's always `None` for connected clients)
+- `events` messages: disconnect keys are `EVT_WU_Disconnected` / `EVT_WG_Disconnected` (CamelCase with `EVT_` prefix, NOT `wu.disconnected`)
+- `events` messages: `user` field contains the client MAC (not `mac` field)
+- Connect detection: `sta:sync` adds/updates client in coordinator data
+- Disconnect detection: `events` with disconnect keys removes client from coordinator data
+- Only calls `async_set_updated_data()` when data actually changes (avoids update spam from frequent `sta:sync`)
 
 ## API Paths
 - Login: `POST /api/auth/login`
 - Clients: `GET /proxy/network/api/s/default/stat/sta`
 - WLANs: `GET /proxy/network/api/s/default/rest/wlanconf`
+- WebSocket: `wss://<host>/proxy/network/wss/s/default/events`
 
 ## Structure
 ```
@@ -37,7 +50,7 @@ custom_components/unifi_device_tracker/
 ├── __init__.py          # setup/unload, options reload listener
 ├── manifest.json
 ├── const.py
-├── coordinator.py       # UnifiApiClient + UnifiDataUpdateCoordinator
+├── coordinator.py       # UnifiApiClient + UnifiDataUpdateCoordinator + WebSocket
 ├── config_flow.py       # 2-step config flow + options flow
 ├── device_tracker.py    # CoordinatorEntity + ScannerEntity
 ├── sensor.py            # SSID client count sensors

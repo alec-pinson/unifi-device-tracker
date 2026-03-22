@@ -23,13 +23,11 @@ from .const import (
     CONF_HOME_DELAY,
     CONF_HOST,
     CONF_PASSWORD,
-    CONF_SCAN_INTERVAL,
     CONF_TRACKED_MACS,
     CONF_USERNAME,
     CONF_VERIFY_SSL,
     DEFAULT_AWAY_DELAY,
     DEFAULT_HOME_DELAY,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
 from .coordinator import UnifiApiClient
@@ -154,7 +152,6 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
             tracked = [m.lower() for m in user_input.get(CONF_TRACKED_MACS, [])]
             return self.async_create_entry(data={
                 CONF_TRACKED_MACS: tracked,
-                CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                 CONF_AWAY_DELAY: user_input.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY),
                 CONF_HOME_DELAY: user_input.get(CONF_HOME_DELAY, DEFAULT_HOME_DELAY),
             })
@@ -175,7 +172,6 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
             await api.async_close()
 
         currently_tracked = self._config_entry.options.get(CONF_TRACKED_MACS, [])
-        current_scan_interval = self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         current_away_delay = self._config_entry.options.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY)
         current_home_delay = self._config_entry.options.get(CONF_HOME_DELAY, DEFAULT_HOME_DELAY)
 
@@ -196,9 +192,6 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_SCAN_INTERVAL, default=current_scan_interval): NumberSelector(
-                        NumberSelectorConfig(min=5, max=3600, step=1, unit_of_measurement="s", mode=NumberSelectorMode.BOX)
-                    ),
                     vol.Required(CONF_AWAY_DELAY, default=current_away_delay): _delay_selector,
                     vol.Required(CONF_HOME_DELAY, default=current_home_delay): _delay_selector,
                     vol.Required(

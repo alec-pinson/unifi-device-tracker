@@ -5,14 +5,20 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_TRACKED_MACS = "tracked_macs"
-CONF_SCAN_INTERVAL = "scan_interval"
 CONF_AWAY_DELAY = "away_delay"
 CONF_HOME_DELAY = "home_delay"
 
-DEFAULT_SCAN_INTERVAL = 30  # seconds
 DEFAULT_AWAY_DELAY = 0  # seconds
 DEFAULT_HOME_DELAY = 0  # seconds
 
 UNIFI_LOGIN_PATH = "/api/auth/login"
 UNIFI_CLIENTS_PATH = "/proxy/network/api/s/default/stat/sta"
 UNIFI_WLANS_PATH = "/proxy/network/api/s/default/rest/wlanconf"
+UNIFI_WS_PATH = "/proxy/network/wss/s/default/events"
+
+WS_HEARTBEAT_INTERVAL = 25  # seconds
+WS_RECONNECT_MIN_DELAY = 5  # seconds
+WS_RECONNECT_MAX_DELAY = 300  # seconds
+WS_EVENT_STA_SYNC = "sta:sync"
+WS_EVENT_EVENTS = "events"
+WS_DISCONNECT_KEYS = {"EVT_WU_Disconnected", "EVT_WG_Disconnected"}
