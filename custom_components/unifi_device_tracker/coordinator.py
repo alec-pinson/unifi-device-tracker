@@ -212,16 +212,16 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
             return
 
         current_data = dict(self.data) if self.data else {}
-        changed = False
+        notify = False
 
         if message_type == WS_EVENT_STA_SYNC:
             for client in data_list:
                 mac = client.get("mac", "").lower()
                 if not mac:
                     continue
-                if mac not in current_data or current_data[mac] != client:
-                    current_data[mac] = client
-                    changed = True
+                if mac not in current_data:
+                    notify = True
+                current_data[mac] = client
 
         elif message_type == WS_EVENT_EVENTS:
             for event in data_list:
@@ -231,10 +231,12 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
                     if mac and mac in current_data:
                         del current_data[mac]
-                        changed = True
+                        notify = True
 
-        if changed:
+        if notify:
             self.async_set_updated_data(current_data)
+        else:
+            self.data = current_data
 
     async def _ws_backoff(self) -> None:
         _LOGGER.debug("WebSocket reconnect in %s seconds", self._ws_reconnect_delay)
