@@ -5,7 +5,7 @@ A lightweight Home Assistant custom integration to track specific UniFi network 
 ## Features
 
 - Tracks selected UniFi clients as `home`/`not_home` device tracker entities
-- Polls the UniFi OS local API on a configurable interval (default 30 seconds)
+- Real-time presence detection via WebSocket push — near-instant connect/disconnect updates
 - Uses the UniFi device alias as the entity name when set
 - Configurable away and home delays to avoid false presence changes
 - Sensor entities showing connected client counts per WiFi SSID (all SSIDs auto-discovered at startup)
@@ -54,7 +54,6 @@ Click **Configure** on the integration to adjust settings. The options flow re-f
 
 | Option | Default | Description |
 |---|---|---|
-| Poll interval | 30s | How often to query the UniFi controller |
 | Away delay | 0s | Seconds to wait before marking a device as Away after it leaves the network |
 | Home delay | 0s | Seconds to wait before marking a device as Home after it joins the network |
 | Devices | — | Which clients to track (sorted alphabetically, shows alias if set) |
@@ -64,8 +63,11 @@ Unticking a device and saving will remove its entity from Home Assistant.
 ## How It Works
 
 - Authenticates against the UniFi OS local API (`/api/auth/login`)
-- Polls `/proxy/network/api/s/default/stat/sta` on the configured interval — this endpoint returns only **currently connected** clients
-- A missing MAC in the response means the device is `not_home` (subject to away delay)
+- On startup, fetches the current client list from `/proxy/network/api/s/default/stat/sta` to populate initial entity states
+- Opens a WebSocket connection to `/proxy/network/wss/s/default/events` for real-time push updates
+- Client connects are detected via `sta:sync` messages; disconnects via `EVT_WU_Disconnected` events
+- A client removed from the data means the device is `not_home` (subject to away delay)
+- If the WebSocket disconnects, the integration automatically reconnects with exponential backoff
 - Entity names use the UniFi device alias (`name` field) if set, falling back to hostname then MAC
 - On session expiry (HTTP 401), the integration automatically re-authenticates and retries
 - At startup, queries `/proxy/network/api/s/default/rest/wlanconf` to discover all configured SSIDs and create client-count sensors for each (including SSIDs with no connected clients)
