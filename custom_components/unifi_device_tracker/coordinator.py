@@ -168,12 +168,18 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                     self._ws = await self.api.async_ws_connect()
                 except Exception as err:
                     _LOGGER.debug("WebSocket connect failed: %s", err)
+                    with contextlib.suppress(Exception):
+                        await self.api.async_login()
                     await self._ws_backoff()
                     continue
 
                 _LOGGER.info("WebSocket connected to UniFi controller")
                 self._ws_connected = True
                 self._ws_reconnect_delay = WS_RECONNECT_MIN_DELAY
+
+                # Re-fetch current client list to establish ground truth after
+                # (re)connect — catches disconnect events missed while WS was down
+                await self.async_refresh()
 
                 await self._ws_receive_loop()
 
