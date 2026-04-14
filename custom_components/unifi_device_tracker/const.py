@@ -19,6 +19,10 @@ UNIFI_WS_PATH = "/proxy/network/wss/s/default/events"
 WS_HEARTBEAT_INTERVAL = 25  # seconds
 WS_RECONNECT_MIN_DELAY = 5  # seconds
 WS_RECONNECT_MAX_DELAY = 300  # seconds
+# Window after a disconnect in which stale sta:sync frames are suppressed
+# and brief reconnects (fast WiFi roams) are treated as continuous presence
+# so home_delay doesn't re-arm.
+WS_DISCONNECT_SUPPRESSION_WINDOW = 15  # seconds
 WS_EVENT_STA_SYNC = "sta:sync"
 WS_EVENT_EVENTS = "events"
 WS_CONNECT_KEYS = {"EVT_WU_Connected", "EVT_WG_Connected"}

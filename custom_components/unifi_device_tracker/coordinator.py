@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 
 import aiohttp
 
@@ -23,6 +24,7 @@ from .const import (
     UNIFI_WS_PATH,
     WS_CONNECT_KEYS,
     WS_DISCONNECT_KEYS,
+    WS_DISCONNECT_SUPPRESSION_WINDOW,
     WS_EVENT_EVENTS,
     WS_EVENT_STA_SYNC,
     WS_HEARTBEAT_INTERVAL,
@@ -115,6 +117,7 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         self._ws_task: asyncio.Task | None = None
         self._ws_connected: bool = False
         self._ws_reconnect_delay: float = WS_RECONNECT_MIN_DELAY
+        self._recently_disconnected: dict[str, float] = {}
 
     async def _async_setup(self) -> None:
         try:
@@ -132,15 +135,21 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
             try:
                 await self.api.async_login()
                 clients = await self.api.async_get_clients()
-                if self._ws_connected:
-                    await self.async_stop_websocket()
-                    await self.async_start_websocket()
             except Exception as err:
                 raise UpdateFailed(f"Re-login failed: {err}") from err
+            # Close the WebSocket so the listener reconnects with the fresh
+            # session cookie. Must NOT call async_stop_websocket() here — this
+            # coroutine may itself be running inside the WS listener task
+            # (via async_refresh() after reconnect), and cancelling the
+            # current task while awaiting it would deadlock.
+            if self._ws is not None and not self._ws.closed:
+                with contextlib.suppress(Exception):
+                    async with asyncio.timeout(1):
+                        await self._ws.close()
         except Exception as err:
             raise UpdateFailed(f"Error fetching UniFi clients: {err}") from err
 
-        return {c["mac"].lower(): c for c in clients if "mac" in c}
+        return {c["mac"].lower(): c for c in clients if c.get("mac")}
 
     async def async_start_websocket(self) -> None:
         if self._ws_task is not None:
@@ -221,29 +230,60 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         current_data = dict(self.data) if self.data else {}
         notify = False
 
+        now = time.monotonic()
+        # Opportunistically prune stale disconnect entries so the dict
+        # doesn't grow unbounded for devices that never return.
+        if self._recently_disconnected:
+            self._recently_disconnected = {
+                m: t
+                for m, t in self._recently_disconnected.items()
+                if now - t < WS_DISCONNECT_SUPPRESSION_WINDOW
+            }
+
         if message_type == WS_EVENT_STA_SYNC:
             for client in data_list:
-                mac = client.get("mac", "").lower()
+                mac = (client.get("mac") or "").lower()
                 if not mac:
                     continue
                 if mac not in current_data:
-                    _LOGGER.debug("Client connected: mac=%s", mac)
+                    disconnected_at = self._recently_disconnected.get(mac)
+                    if disconnected_at is not None:
+                        if now - disconnected_at < WS_DISCONNECT_SUPPRESSION_WINDOW:
+                            # Suppress stale sta:sync arriving shortly after a disconnect event
+                            continue
+                        del self._recently_disconnected[mac]
+                    _LOGGER.debug("Client connected via sta:sync: mac=%s", mac)
                     notify = True
                 current_data[mac] = client
 
         elif message_type == WS_EVENT_EVENTS:
             for event in data_list:
-                key = event.get("key", "")
-                mac = event.get("user", "").lower() or event.get("mac", "").lower()
+                key = event.get("key") or ""
+                mac = (event.get("user") or event.get("mac") or "").lower()
                 if key in WS_CONNECT_KEYS:
                     _LOGGER.debug("Client connected: mac=%s key=%s", mac, key)
-                    if mac and mac not in current_data:
+                    if not mac:
+                        continue
+                    disconnected_at = self._recently_disconnected.get(mac)
+                    if (
+                        disconnected_at is not None
+                        and now - disconnected_at < WS_DISCONNECT_SUPPRESSION_WINDOW
+                    ):
+                        # Fast roam / brief drop — restore presence silently
+                        # so home_delay doesn't re-arm and cause a flicker.
+                        del self._recently_disconnected[mac]
+                        if mac not in current_data:
+                            current_data[mac] = event
+                        continue
+                    if mac not in current_data:
+                        self._recently_disconnected.pop(mac, None)
                         current_data[mac] = event
                         notify = True
                 elif key in WS_DISCONNECT_KEYS:
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
                     if mac and mac in current_data:
                         del current_data[mac]
+                        self._recently_disconnected[mac] = now
                         notify = True
 
         if notify:

@@ -38,7 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 def _client_label(client: dict) -> str:
     alias = (client.get("name") or "").strip()
     hostname = (client.get("hostname") or "").strip()
-    mac = client.get("mac", "").lower()
+    mac = (client.get("mac") or "").lower()
     if alias and hostname:
         return f"{alias} ({hostname}, {mac})"
     if alias:
@@ -110,14 +110,13 @@ class UnifiDeviceTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 options={CONF_TRACKED_MACS: tracked},
             )
 
-        options = sorted(
-            [
-                SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
-                for c in self._clients
-                if "mac" in c
-            ],
-            key=lambda o: o["label"].lower(),
-        )
+        option_by_mac: dict[str, SelectOptionDict] = {}
+        for c in self._clients:
+            mac = (c.get("mac") or "").lower()
+            if not mac:
+                continue
+            option_by_mac[mac] = SelectOptionDict(value=mac, label=_client_label(c))
+        options = sorted(option_by_mac.values(), key=lambda o: o["label"].lower())
 
         return self.async_show_form(
             step_id="select_devices",
@@ -171,17 +170,31 @@ class UnifiDeviceTrackerOptionsFlow(OptionsFlow):
         finally:
             await api.async_close()
 
-        currently_tracked = self._config_entry.options.get(CONF_TRACKED_MACS, [])
+        currently_tracked = [
+            m.lower() for m in self._config_entry.options.get(CONF_TRACKED_MACS, [])
+        ]
         current_away_delay = self._config_entry.options.get(CONF_AWAY_DELAY, DEFAULT_AWAY_DELAY)
         current_home_delay = self._config_entry.options.get(CONF_HOME_DELAY, DEFAULT_HOME_DELAY)
 
+        option_by_mac: dict[str, SelectOptionDict] = {}
+        for c in self._clients:
+            mac = (c.get("mac") or "").lower()
+            if not mac:
+                continue
+            option_by_mac[mac] = SelectOptionDict(value=mac, label=_client_label(c))
+
+        # Ensure currently tracked MACs that aren't currently connected still
+        # appear as selectable options — otherwise the selector rejects the
+        # default value and the user can't save the form.
+        offline_macs: set[str] = set()
+        for mac in currently_tracked:
+            if mac not in option_by_mac:
+                option_by_mac[mac] = SelectOptionDict(value=mac, label=f"{mac} (offline)")
+                offline_macs.add(mac)
+
         options = sorted(
-            [
-                SelectOptionDict(value=c["mac"].lower(), label=_client_label(c))
-                for c in self._clients
-                if "mac" in c
-            ],
-            key=lambda o: o["label"].lower(),
+            option_by_mac.values(),
+            key=lambda o: (o["value"] in offline_macs, o["label"].lower()),
         )
 
         _delay_selector = NumberSelector(
