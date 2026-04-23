@@ -44,8 +44,8 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
         super().__init__(coordinator)
         self._mac = mac.lower()
         self._attr_unique_id = f"unifi_device_tracker_{self._mac.replace(':', '')}"
-        self._last_seen: datetime | None = None
         self._first_seen: datetime | None = None
+        self._disconnected_at: datetime | None = None
         self._last_known_client: dict | None = None
         self._unsub_delay: Callable[[], None] | None = None
 
@@ -62,24 +62,18 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
         now = dt_util.utcnow()
         if self._client is not None:
             self._last_known_client = self._client
-            # Re-arm home_delay grace only on a genuinely fresh connection —
-            # not on a fast roam or brief drop within the suppression window,
-            # otherwise a real WiFi handoff causes a visible flicker to Away.
-            gap_too_long = (
-                self._last_seen is not None
-                and (now - self._last_seen).total_seconds() > WS_DISCONNECT_SUPPRESSION_WINDOW
-            )
-            if self._first_seen is None or gap_too_long:
+            if self._first_seen is None:
                 self._first_seen = now
-            self._last_seen = now
-        # Do not null _first_seen on disconnect: it survives brief gaps so
-        # fast roams don't re-trigger home_delay. On a long-gap reconnect
-        # the gap_too_long check above will re-arm it.
-        #
-        # Note: silent restores in the coordinator (reconnect within the
-        # suppression window) deliberately do NOT call this method, so
-        # _last_seen won't advance during those events. A pending away_delay
-        # timer from the preceding disconnect may fire as a harmless no-op.
+            elif self._disconnected_at is not None:
+                gap = (now - self._disconnected_at).total_seconds()
+                if gap > WS_DISCONNECT_SUPPRESSION_WINDOW:
+                    _LOGGER.debug("Long gap (%.1fs) for %s — re-arming home_delay", gap, self._mac)
+                    self._first_seen = now
+                else:
+                    _LOGGER.debug("Fast roam (%.1fs) for %s — preserving home_delay", gap, self._mac)
+            self._disconnected_at = None
+        else:
+            self._disconnected_at = now
         self._schedule_delay_expiry()
         super()._handle_coordinator_update()
 
@@ -96,8 +90,8 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
         remaining: float | None = None
 
         if self._client is None:
-            if away_delay > 0 and self._last_seen is not None:
-                expiry = away_delay - (now - self._last_seen).total_seconds()
+            if away_delay > 0 and self._disconnected_at is not None:
+                expiry = away_delay - (now - self._disconnected_at).total_seconds()
                 if expiry > 0:
                     remaining = expiry
         else:
@@ -135,8 +129,8 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
                     return False
             return True
 
-        if away_delay > 0 and self._last_seen is not None:
-            if (now - self._last_seen).total_seconds() < away_delay:
+        if away_delay > 0 and self._disconnected_at is not None:
+            if (now - self._disconnected_at).total_seconds() < away_delay:
                 return True
         return False
 
