@@ -23,6 +23,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         prefix = "unifi_device_tracker_"
         if uid.startswith(prefix):
             mac_flat = uid[len(prefix):]
+            if len(mac_flat) != 12:
+                continue
             mac = ":".join(mac_flat[i:i+2] for i in range(0, 12, 2))
             if mac not in tracked_macs:
                 entity_registry.async_remove(entity_entry.entity_id)

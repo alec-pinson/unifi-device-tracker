@@ -33,6 +33,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class UnifiAuthExpired(Exception):
+    """Raised when the UniFi session has expired and needs re-login."""
+
+
 class UnifiApiClient:
     def __init__(self, host: str, username: str, password: str, verify_ssl: bool) -> None:
         self._host = host.rstrip("/")
@@ -66,7 +70,7 @@ class UnifiApiClient:
         try:
             async with self._session.get(url, ssl=self._verify_ssl) as resp:
                 if resp.status == 401:
-                    raise PermissionError("Unauthorized — session expired")
+                    raise UnifiAuthExpired("Unauthorized — session expired")
                 resp.raise_for_status()
                 body = await resp.json()
                 return body.get("data", [])
@@ -78,7 +82,7 @@ class UnifiApiClient:
         try:
             async with self._session.get(url, ssl=self._verify_ssl) as resp:
                 if resp.status == 401:
-                    raise PermissionError("Unauthorized — session expired")
+                    raise UnifiAuthExpired("Unauthorized — session expired")
                 resp.raise_for_status()
                 body = await resp.json()
                 return body.get("data", [])
@@ -110,6 +114,7 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
             _LOGGER,
             name=DOMAIN,
             update_interval=None,
+            config_entry=entry,
         )
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._ws_task: asyncio.Task | None = None
@@ -127,11 +132,13 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
     async def _async_update_data(self) -> dict[str, dict]:
         try:
             clients = await self.api.async_get_clients()
-        except PermissionError:
+        except UnifiAuthExpired:
             _LOGGER.debug("Session expired, re-logging in")
             try:
                 await self.api.async_login()
                 clients = await self.api.async_get_clients()
+            except ConfigEntryAuthFailed:
+                raise
             except Exception as err:
                 raise UpdateFailed(f"Re-login failed: {err}") from err
             # Close the WebSocket so the listener reconnects with the fresh
@@ -174,8 +181,17 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                     self._ws = await self.api.async_ws_connect()
                 except Exception as err:
                     _LOGGER.debug("WebSocket connect failed: %s", err)
-                    with contextlib.suppress(Exception):
+                    try:
                         await self.api.async_login()
+                    except ConfigEntryAuthFailed:
+                        _LOGGER.error(
+                            "WebSocket re-login failed: invalid credentials, requesting reauth"
+                        )
+                        if self.config_entry is not None:
+                            self.config_entry.async_start_reauth(self.hass)
+                        return
+                    except Exception as login_err:
+                        _LOGGER.debug("WebSocket re-login failed: %s", login_err)
                     await self._ws_backoff()
                     continue
 
@@ -195,9 +211,14 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 _LOGGER.debug("WebSocket error: %s", err)
             finally:
                 self._ws_connected = False
-                if self._ws is not None and not self._ws.closed:
-                    await self._ws.close()
+                ws = self._ws
                 self._ws = None
+                # Shield close from cancellation propagating into the await,
+                # otherwise the socket can be left half-open and leak fds
+                # across entry reloads.
+                if ws is not None and not ws.closed:
+                    with contextlib.suppress(Exception):
+                        await asyncio.shield(ws.close())
 
             _LOGGER.info("WebSocket disconnected, reconnecting")
             await self._ws_backoff()
@@ -242,12 +263,10 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 key = event.get("key") or ""
                 mac = (event.get("user") or event.get("mac") or "").lower()
                 if key in WS_CONNECT_KEYS:
-                    _LOGGER.debug("Client connected: mac=%s key=%s", mac, key)
-                    if not mac:
-                        continue
-                    if mac not in current_data:
-                        current_data[mac] = event
-                        notify = True
+                    # Don't add from the event payload — it's an event dict, not
+                    # a client dict (no name/hostname/ip/essid). sta:sync
+                    # follows on connect and provides the proper client record.
+                    _LOGGER.debug("Client connect event: mac=%s key=%s", mac, key)
                 elif key in WS_DISCONNECT_KEYS:
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
                     if mac and mac in current_data:

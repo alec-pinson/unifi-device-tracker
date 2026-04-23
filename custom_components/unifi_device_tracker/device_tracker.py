@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.components.device_tracker import ScannerEntity, SourceType
 from homeassistant.config_entries import ConfigEntry
@@ -44,7 +44,14 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
         super().__init__(coordinator)
         self._mac = mac.lower()
         self._attr_unique_id = f"unifi_device_tracker_{self._mac.replace(':', '')}"
-        self._first_seen: datetime | None = None
+        # If the client is already present at entity init (HA restart with a
+        # device that's been continuously connected), backdate _first_seen so
+        # the home_delay is treated as already satisfied. Otherwise a WS
+        # reconnect would re-arm home_delay and falsely flip the device away.
+        if (coordinator.data or {}).get(self._mac) is not None:
+            self._first_seen: datetime | None = dt_util.utcnow() - timedelta(days=1)
+        else:
+            self._first_seen = None
         self._disconnected_at: datetime | None = None
         self._last_known_client: dict | None = None
         self._unsub_delay: Callable[[], None] | None = None
@@ -108,6 +115,8 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
     @callback
     def _delay_expired(self, _now) -> None:
         self._unsub_delay = None
+        if self.hass is None or not self.enabled:
+            return
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
