@@ -254,8 +254,21 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 if not mac:
                     continue
                 if mac not in current_data:
-                    _LOGGER.debug("Client connected via sta:sync: mac=%s", mac)
-                    notify = True
+                    is_wired = client.get("is_wired", False)
+                    has_essid = bool(client.get("essid"))
+                    _LOGGER.debug(
+                        "Client connected via sta:sync: mac=%s essid=%s is_wired=%s fields=%s",
+                        mac,
+                        client.get("essid"),
+                        client.get("is_wired"),
+                        list(client.keys()),
+                    )
+                    # Wireless clients without essid are database-record broadcasts
+                    # (not active WLAN associations). Add silently and wait for
+                    # EVT_WU_Connected to confirm before notifying HA, so phantom
+                    # sta:sync messages never flip the device to home.
+                    if is_wired or has_essid:
+                        notify = True
                 current_data[mac] = client
 
         elif message_type == WS_EVENT_EVENTS:
@@ -263,10 +276,12 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 key = event.get("key") or ""
                 mac = (event.get("user") or event.get("mac") or "").lower()
                 if key in WS_CONNECT_KEYS:
-                    # Don't add from the event payload — it's an event dict, not
-                    # a client dict (no name/hostname/ip/essid). sta:sync
-                    # follows on connect and provides the proper client record.
                     _LOGGER.debug("Client connect event: mac=%s key=%s", mac, key)
+                    # Confirm presence for clients added silently via sta:sync
+                    # (wireless clients that arrived without essid). This fires
+                    # after the real association completes.
+                    if mac and mac in current_data:
+                        notify = True
                 elif key in WS_DISCONNECT_KEYS:
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
                     if mac and mac in current_data:
