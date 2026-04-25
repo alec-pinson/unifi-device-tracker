@@ -1,7 +1,7 @@
 {
   "domain": "unifi_device_tracker",
   "name": "UniFi Device Tracker",
-  "version": "1.4.2",
+  "version": "1.4.4",
   "config_flow": true,
   "requirements": [],
   "dependencies": [],
