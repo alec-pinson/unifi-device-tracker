@@ -120,6 +120,9 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         self._ws_task: asyncio.Task | None = None
         self._ws_connected: bool = False
         self._ws_reconnect_delay: float = WS_RECONNECT_MIN_DELAY
+        # Wireless clients seen in sta:sync without essid — held here until
+        # EVT_WU_Connected confirms the association. Never exposed to HA until confirmed.
+        self._pending_ws_clients: dict[str, dict] = {}
 
     async def _async_setup(self) -> None:
         try:
@@ -153,7 +156,20 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         except Exception as err:
             raise UpdateFailed(f"Error fetching UniFi clients: {err}") from err
 
-        return {c["mac"].lower(): c for c in clients if c.get("mac")}
+        result = {}
+        for c in clients:
+            mac = (c.get("mac") or "").lower()
+            if not mac:
+                continue
+            _LOGGER.debug(
+                "REST: client mac=%s essid=%s is_wired=%s fields=%s",
+                mac,
+                c.get("essid"),
+                c.get("is_wired"),
+                list(c.keys()),
+            )
+            result[mac] = c
+        return result
 
     async def async_start_websocket(self) -> None:
         if self._ws_task is not None:
@@ -253,9 +269,9 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 mac = (client.get("mac") or "").lower()
                 if not mac:
                     continue
+                is_wired = client.get("is_wired", False)
+                has_essid = bool(client.get("essid"))
                 if mac not in current_data:
-                    is_wired = client.get("is_wired", False)
-                    has_essid = bool(client.get("essid"))
                     _LOGGER.debug(
                         "Client connected via sta:sync: mac=%s essid=%s is_wired=%s fields=%s",
                         mac,
@@ -263,13 +279,19 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                         client.get("is_wired"),
                         list(client.keys()),
                     )
-                    # Wireless clients without essid are database-record broadcasts
-                    # (not active WLAN associations). Add silently and wait for
-                    # EVT_WU_Connected to confirm before notifying HA, so phantom
-                    # sta:sync messages never flip the device to home.
                     if is_wired or has_essid:
+                        # Confirmed active connection — expose to HA immediately.
+                        self._pending_ws_clients.pop(mac, None)
+                        current_data[mac] = client
                         notify = True
-                current_data[mac] = client
+                    else:
+                        # Unconfirmed wireless client (no essid) — hold in pending
+                        # until EVT_WU_Connected confirms the association. Must NOT
+                        # enter current_data yet or any subsequent notify (from any
+                        # device) will expose it to HA.
+                        self._pending_ws_clients[mac] = client
+                else:
+                    current_data[mac] = client
 
         elif message_type == WS_EVENT_EVENTS:
             for event in data_list:
@@ -277,13 +299,15 @@ class UnifiDataUpdateCoordinator(DataUpdateCoordinator[dict[str, dict]]):
                 mac = (event.get("user") or event.get("mac") or "").lower()
                 if key in WS_CONNECT_KEYS:
                     _LOGGER.debug("Client connect event: mac=%s key=%s", mac, key)
-                    # Confirm presence for clients added silently via sta:sync
-                    # (wireless clients that arrived without essid). This fires
-                    # after the real association completes.
-                    if mac and mac in current_data:
+                    if mac and mac in self._pending_ws_clients:
+                        # Promote from pending to confirmed.
+                        current_data[mac] = self._pending_ws_clients.pop(mac)
+                        notify = True
+                    elif mac and mac in current_data:
                         notify = True
                 elif key in WS_DISCONNECT_KEYS:
                     _LOGGER.debug("Client disconnected: mac=%s key=%s", mac, key)
+                    self._pending_ws_clients.pop(mac, None)
                     if mac and mac in current_data:
                         del current_data[mac]
                         notify = True

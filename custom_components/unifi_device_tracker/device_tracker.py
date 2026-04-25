@@ -67,6 +67,12 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
     @callback
     def _handle_coordinator_update(self) -> None:
         now = dt_util.utcnow()
+        _LOGGER.debug(
+            "State update for %s: client_present=%s essid=%s",
+            self._mac,
+            self._client is not None,
+            self._client.get("essid") if self._client else None,
+        )
         if self._client is not None:
             self._last_known_client = self._client
             if self._first_seen is None:
@@ -80,7 +86,8 @@ class UnifiDeviceTracker(CoordinatorEntity[UnifiDataUpdateCoordinator], ScannerE
                     _LOGGER.debug("Fast roam (%.1fs) for %s — preserving home_delay", gap, self._mac)
             self._disconnected_at = None
         else:
-            self._disconnected_at = now
+            if self._disconnected_at is None:
+                self._disconnected_at = now
         self._schedule_delay_expiry()
         super()._handle_coordinator_update()
 
